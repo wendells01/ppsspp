@@ -54,3 +54,17 @@ AO only, and both ON. Check cars/roadside geometry for useful contact darkening,
 white HUD graphics for excessive bloom, and the existing real/presented FPS for
 performance loss. Native compilation and synthetic GPU tests do not establish
 visual quality or sustained 120 Hz gameplay on the physical phone.
+
+Build `4bcf450` compiled and archived for iPhoneOS in
+[Actions run 43445092554](https://github.com/wendells01/ppsspp/actions/runs/43445092554).
+The presentation telemetry, original Metal blending/pool tests, and visual-effects
+GPU tests all executed successfully; none of the GPU tests was skipped. The IPA
+ZIP was checked, its identifier matched V3 (`org.ppsspp.ppsspp`), and the ProMotion
+Info.plist flag remained enabled. iPhone visual/performance validation is pending.
+
+The separate neural-rendering experiment was removed at the user's request:
+local upstream clones, DLL/model downloads, conversion environment, generated
+weights, probe IPAs, and NR diagnostics were deleted. Its two experimental GitHub
+branches and five Actions runs/artifacts were deleted. The V3 branch, previous
+V3 IPAs, and frame-generation diagnostics were preserved. Copies already received
+on the phone require deletion on the phone.
