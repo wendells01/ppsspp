@@ -1293,7 +1293,7 @@ void MetalRenderManager::ReplayPass(const MetalCommandChunk &chunk, MetalStep &s
 	}
 	id<MTLTexture> depth = (__bridge id<MTLTexture>)pass.depth;
 	if (depth) {
-		if (!pass.swapchain && color && !pass.depthMemoryless && step.usesDepth)
+		if ((chunk.visualColor || chunk.visualAO) && !pass.swapchain && color && !pass.depthMemoryless && step.usesDepth)
 			objc_setAssociatedObject(color, &visualDepthKey, depth, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 		MTLLoadAction depthLoad = pass.depthLoad;
 		MTLLoadAction stencilLoad = pass.stencilLoad;
