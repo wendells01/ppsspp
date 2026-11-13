@@ -49,7 +49,7 @@ kernel test, builds an unsigned arm64 device archive with Xcode, and packages
 needed for packaging. SideStore/AltStore must sign the app for installation.
 The standard sideload build is used; JIT availability still depends on the device
 and sideload setup. No private-entitlement ldid signing or jailbreak is required
-by this workflow. It has not been run from this Linux checkout.
+by this workflow. The workflow successfully built the device archive on 2026-11-13 using Xcode 16.4 (iOS SDK 18.5).
 
 Equivalent macOS build commands are the Configure/Build/Package steps in
 `.github/workflows/ios-frame-generation.yml`. The standalone GPU test uses two
@@ -78,3 +78,31 @@ Apple SDK/toolchain. A Linux build checks the shared configuration and overlay
 only. iPhone startup, actual ProMotion cadence, thermal behavior, physics, and
 sideload installation remain unverified until the macOS build and device steps
 are completed. This prototype has no optical flow or motion estimation.
+
+## Recorded build and delivery
+
+- Source commit: `bdc355b`; fork: https://github.com/wendells01/ppsspp
+- Successful run: https://github.com/wendells01/ppsspp/actions/runs/43422503076
+- IPA artifact: https://github.com/wendells01/ppsspp/actions/runs/43422503076/artifacts/14034738905
+- IPA: 20,017,367 bytes; SHA256 `9d92e7f5164443dbb610f7a864d56f9cfefcaec3a8a52b66abf143976f48e274`.
+- Archive succeeded. Standalone GPU test actually ran and passed on the macOS
+  runner (not skipped): expected midpoint pixels and identical-pair rejection.
+  This tests synthetic textures, not an emulated game or iPhone display cadence.
+- Local package inspection: valid ZIP, iOS arm64 Mach-O, minimum iOS 15,
+  ProMotion plist key true, embedded blend shader and experimental UI label,
+  unencrypted executable, only system dylib dependencies. Unsigned by design.
+- Taildrop transfer to the online `16Pro` peer completed successfully.
+- Linux full headless/shared UI build completed; all 102 C++ unit tests passed.
+  Focused C++ tests ConfigSettings,
+  Parsers, UITabOrder, UIFocusNavigation and UIFlowLayout passed (5/5).
+- Focused PSP display tests: display, setframebuf, vblankmulti and vblankphase
+  passed; vblanklen failed due to expected timing-range differences (4/5).
+  No baseline comparison was performed, so this is not classified as a regression
+  or pre-existing failure. No emulator timing code was changed.
+- The broad PSP suite was also invoked and is not green (its main group reported
+  501 passed, 93 failed, 2 missing; additional network tests have failures).
+  Those results do not validate this iOS presentation path. Broader emulation
+  repairs are outside the prototype's scope.
+
+Installation, normal OFF behavior on device, real game intermediate images,
+physics/audio pacing, and 120-Hz scanout remain untested on the iPhone.
