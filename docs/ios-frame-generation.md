@@ -139,3 +139,32 @@ Local inspection confirmed arm64, the ProMotion key, source revision, new overla
 labels and debugger fields. The new `gpu.stats.get` fields were also verified
 through a live local debugger connection. Improved iPhone cadence remains pending
 reinstallation and another device measurement.
+
+## Third build: bounded latency and resource reuse
+
+The capture and midpoint texture pools retain leases through GPU completion;
+slots cannot be reused while a command buffer or pending/previous frame owns
+them. Each pool is bounded at 12 slots and discards free old-size textures on
+resize. The shared three-word comparison buffer is reused after compute completion.
+The pending queue is limited to two frames; out-of-order arrivals and frames
+older than 40 ms are discarded rather than accumulating presentation delay.
+
+The GPU sparsely counts large color changes. If over 85 percent of sampled
+pixels differ by more than 0.45 mean RGB, the candidate is treated as a hard cut
+and only the real image is presented. This is deliberately conservative and
+cannot remove ordinary frame-blending ghosting.
+
+Actual drawable presentedTime callbacks now populate rolling 1024-sample frame
+interval and source-to-display latency p50/p95/p99 measurements in milliseconds.
+This latency starts at final-frame submission; it does not measure full controller
+input latency. Gaps above 250 ms are excluded from frame-interval percentiles.
+The overlay shows p95 interval/latency and cut count. The debugger additionally
+reports late presentations, thermal state and Low Power Mode. Serious/critical
+thermal state or Low Power Mode suspends the 120-Hz request and interpolation.
+
+Regression risks: a conservative cut heuristic may skip a useful midpoint;
+the reduced queue can drop frames under overload; incorrect GPU resource leases
+would corrupt images. Mac GPU tests cover pooling and cut statistics, while the
+new presentation-metrics test checks percentiles and late-frame accounting.
+Long-session heat/battery and foreground/background behavior still require this
+build installed on the phone; no synthetic test establishes those results.

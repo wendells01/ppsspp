@@ -71,13 +71,16 @@
 
 - (void)frameGenerationRefresh:(CADisplayLink *)link {
 	const bool enabled = g_Config.bExperimentalFrameGeneration;
+	FrameGeneration::thermalState = (int)NSProcessInfo.processInfo.thermalState;
+	FrameGeneration::lowPower = NSProcessInfo.processInfo.lowPowerModeEnabled;
+	const bool highRate = enabled && !FrameGeneration::lowPower.load() && FrameGeneration::thermalState.load() < 2;
 	if (@available(iOS 15.0, *)) {
-		CAFrameRateRange range = enabled ? CAFrameRateRangeMake(120, 120, 120) : CAFrameRateRangeDefault;
+		CAFrameRateRange range = highRate ? CAFrameRateRangeMake(120, 120, 120) : CAFrameRateRangeDefault;
 		if (!CAFrameRateRangeIsEqualToRange(link.preferredFrameRateRange, range)) {
 			link.preferredFrameRateRange = range;
 		}
 	}
-	FrameGeneration::requestedHz = enabled ? 120 : 0;
+	FrameGeneration::requestedHz = enabled ? (highRate ? 120 : 60) : 0;
 	static CFTimeInterval previous = 0;
 	FrameGeneration::DisplayTick(previous > 0 ? link.timestamp - previous : 0);
 	previous = link.timestamp;

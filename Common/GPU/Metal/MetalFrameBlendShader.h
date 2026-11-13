@@ -28,5 +28,11 @@ kernel void blend(texture2d<float, access::read> a [[texture(0)]],
     float4 av = a.read(p), bv = b.read(p);
     out.write((av + bv) * 0.5, p);
     if (any(av != bv)) atomic_store_explicit(different, 1u, memory_order_relaxed);
+    // Sparse image-wide cut detection; avoid a global atomic increment per pixel.
+    if ((p.x & 15u) == 0u && (p.y & 15u) == 0u) {
+        atomic_fetch_add_explicit(different + 1, 1u, memory_order_relaxed);
+        if (dot(abs(av.rgb - bv.rgb), float3(1.0 / 3.0)) > 0.45)
+            atomic_fetch_add_explicit(different + 2, 1u, memory_order_relaxed);
+    }
 }
 )";

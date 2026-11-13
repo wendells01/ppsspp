@@ -38,7 +38,10 @@ struct CollectedStats {
 	bool fgEnabled;
 	uint64_t fgReal, fgGenerated, fgPresented, fgDropped, fgShaderNS, fgShaderSamples;
 	uint64_t fgDisplayTicks, fgDisplayIntervalNS;
-	int fgRequestedHz;
+	int fgRequestedHz, fgThermalState;
+	bool fgLowPower;
+	uint64_t fgSceneCuts, fgLatePresentations;
+	FrameGeneration::Metrics fgMetrics;
 };
 
 struct DebuggerGPUStatsEvent {
@@ -71,6 +74,17 @@ struct DebuggerGPUStatsEvent {
 		j.writeFloat("displayTicks", (double)s.fgDisplayTicks);
 		j.writeFloat("displayIntervalNS", (double)s.fgDisplayIntervalNS);
 		j.writeInt("requestedHz", s.fgRequestedHz);
+		j.writeInt("thermalState", s.fgThermalState);
+		j.writeBool("lowPower", s.fgLowPower);
+		j.writeFloat("sceneCuts", (double)s.fgSceneCuts);
+		j.writeFloat("latePresentations", (double)s.fgLatePresentations);
+		j.writeFloat("intervalP50MS", s.fgMetrics.intervalP50);
+		j.writeFloat("intervalP95MS", s.fgMetrics.intervalP95);
+		j.writeFloat("intervalP99MS", s.fgMetrics.intervalP99);
+		j.writeFloat("latencyP50MS", s.fgMetrics.latencyP50);
+		j.writeFloat("latencyP95MS", s.fgMetrics.latencyP95);
+		j.writeFloat("latencyP99MS", s.fgMetrics.latencyP99);
+		j.writeFloat("metricSamples", (double)s.fgMetrics.samples);
 		j.pop();
 		j.pushDict("timing");
 		j.pushArray("frames");
@@ -155,6 +169,11 @@ void WebSocketGPUStatsState::FlipListener() {
 	stats.fgDisplayTicks = FrameGeneration::displayTicks.load();
 	stats.fgDisplayIntervalNS = FrameGeneration::displayIntervalNS.load();
 	stats.fgRequestedHz = FrameGeneration::requestedHz.load();
+	stats.fgThermalState = FrameGeneration::thermalState.load();
+	stats.fgLowPower = FrameGeneration::lowPower.load();
+	stats.fgSceneCuts = FrameGeneration::sceneCuts.load();
+	stats.fgLatePresentations = FrameGeneration::latePresentations.load();
+	stats.fgMetrics = FrameGeneration::ReadMetrics();
 
 	StringWriter w(stats.statbuf);
 	__DisplayGetDebugStats(w);

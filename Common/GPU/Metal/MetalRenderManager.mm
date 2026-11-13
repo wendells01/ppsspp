@@ -939,11 +939,9 @@ id<MTLTexture> MetalRenderManager::ReplaySwapchainTexture(MetalSwapchain *swapch
 		if (!swapchain->generationTarget) {
 			CGSize size = swapchain->layer.drawableSize;
 			if (size.width < 1 || size.height < 1) return nil;
-			MTLTextureDescriptor *desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
-				width:(NSUInteger)size.width height:(NSUInteger)size.height mipmapped:NO];
-			desc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
-			desc.storageMode = MTLStorageModePrivate;
-			swapchain->generationTarget = [device_ newTextureWithDescriptor:desc];
+			swapchain->generationLease = swapchain->frameGeneration->AcquireCapture((NSUInteger)size.width, (NSUInteger)size.height);
+			if (!swapchain->generationLease) { FrameGeneration::dropped++; return nil; }
+			swapchain->generationTarget = swapchain->generationLease->texture;
 			rtAcquired_.push_back(swapchain);
 		}
 		return swapchain->generationTarget;
@@ -1061,7 +1059,7 @@ void MetalRenderManager::Replay(MetalCommandChunk *chunk) {
 	if (chunk->end == MetalChunkEnd::PRESENT) {
 		for (MetalSwapchain *swapchain : rtAcquired_) {
 			if (swapchain->generationTarget) {
-				id<MTLTexture> texture = swapchain->generationTarget;
+				auto lease = swapchain->generationLease;
 				bool newFrame = swapchain->generationSerial != chunk->sourceSerial;
 				swapchain->generationSerial = chunk->sourceSerial;
 				std::weak_ptr<MetalFrameGeneration> weak = swapchain->frameGeneration;
@@ -1072,11 +1070,12 @@ void MetalRenderManager::Replay(MetalCommandChunk *chunk) {
 					if (buffer.status == MTLCommandBufferStatusCompleted && newFrame) {
 						if (auto presenter = weak.lock()) {
 							FrameGeneration::real++;
-							presenter->Push(texture, time, serial);
+							presenter->Push(lease, time, serial);
 						}
 					}
 				}];
 				swapchain->generationTarget = nil;
+				swapchain->generationLease.reset();
 				continue;
 			}
 #if PPSSPP_PLATFORM(MAC)

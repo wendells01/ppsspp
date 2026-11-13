@@ -27,6 +27,7 @@
 
 #include <memory>
 class MetalFrameGeneration;
+struct MetalFrameTexture;
 
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
@@ -231,6 +232,7 @@ struct MetalCommand {
 struct MetalSwapchain {
 	std::shared_ptr<MetalFrameGeneration> frameGeneration;
 	id<MTLTexture> generationTarget;
+	std::shared_ptr<MetalFrameTexture> generationLease;
 	uint64_t generationSerial = UINT64_MAX;
 	CAMetalLayer *layer = nil;  // nil for an offscreen backbuffer.
 	id<MTLTexture> offscreen;

@@ -20,12 +20,56 @@
 #include <cstdint>
 #include <condition_variable>
 #include <mutex>
+#include <algorithm>
+#include <array>
+#include <vector>
 
 // Cumulative measured events. Read by the overlay, written by GPU/presentation callbacks.
 namespace FrameGeneration {
 inline std::atomic<uint64_t> real{0}, generated{0}, presented{0}, shaderNS{0}, shaderSamples{0}, dropped{0};
 inline std::atomic<uint64_t> displayTicks{0}, displayIntervalNS{0};
-inline std::atomic<int> requestedHz{0};
+inline std::atomic<int> requestedHz{0}, thermalState{0};
+inline std::atomic<bool> lowPower{false};
+inline std::atomic<uint64_t> sceneCuts{0}, latePresentations{0};
+struct Metrics {
+	double intervalP50 = 0, intervalP95 = 0, intervalP99 = 0;
+	double latencyP50 = 0, latencyP95 = 0, latencyP99 = 0;
+	uint64_t samples = 0;
+};
+inline std::mutex metricsMutex;
+inline std::array<double, 1024> intervals{}, latencies{};
+inline size_t intervalCount = 0, latencyCount = 0;
+inline double lastPresentedTime = 0;
+
+inline void RecordPresentation(double time, double sourceTime) {
+	std::lock_guard<std::mutex> guard(metricsMutex);
+	if (time > lastPresentedTime) {
+		double interval = time - lastPresentedTime;
+		if (lastPresentedTime > 0 && interval < 0.25) {
+			intervals[intervalCount++ % intervals.size()] = interval * 1000;
+			double expected = displayIntervalNS.load() / 1e9;
+			if (expected > 0 && interval > expected * 1.5) latePresentations++;
+		}
+		lastPresentedTime = time;
+	}
+	if (time >= sourceTime) latencies[latencyCount++ % latencies.size()] = (time - sourceTime) * 1000;
+}
+
+inline Metrics ReadMetrics() {
+	std::vector<double> frames, latency;
+	{
+		std::lock_guard<std::mutex> guard(metricsMutex);
+		frames.assign(intervals.begin(), intervals.begin() + std::min(intervalCount, intervals.size()));
+		latency.assign(latencies.begin(), latencies.begin() + std::min(latencyCount, latencies.size()));
+	}
+	std::sort(frames.begin(), frames.end());
+	std::sort(latency.begin(), latency.end());
+	auto percentile = [](const std::vector<double> &v, double q) {
+		return v.empty() ? 0.0 : v[(size_t)((v.size() - 1) * q)];
+	};
+	return {percentile(frames, .5), percentile(frames, .95), percentile(frames, .99),
+		percentile(latency, .5), percentile(latency, .95), percentile(latency, .99), (uint64_t)frames.size()};
+}
 inline std::mutex displayMutex;
 inline std::condition_variable displayCV;
 

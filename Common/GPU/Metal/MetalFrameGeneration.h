@@ -18,19 +18,21 @@
 #pragma once
 
 #include <chrono>
+#include <cstring>
 #include <condition_variable>
 #include <deque>
 #include <mutex>
 #include <thread>
 #include "Common/GPU/Metal/FrameGenerationStats.h"
 #include "Common/GPU/Metal/MetalFrameBlendShader.h"
+#include "Common/GPU/Metal/MetalFrameTexturePool.h"
 
 // Only included by MetalRenderManager.mm. All texture processing stays on the GPU.
 // Own queue/thread: a stalled drawable never waits on UIKit or the emulator thread.
 class MetalFrameGeneration {
 public:
 	struct Frame {
-		id<MTLTexture> texture;
+		std::shared_ptr<MetalFrameTexture> lease;
 		double time;
 		uint64_t serial;
 		double period;
@@ -39,6 +41,11 @@ public:
 		queue_ = [device newCommandQueue];
 		NSError *error = nil;
 		id<MTLLibrary> lib = [device newLibraryWithSource:frameBlendShader options:nil error:&error];
+		if (!lib) {
+			ERROR_LOG(Log::G3D, "Frame generation library: %s", error.localizedDescription.UTF8String);
+			return;
+		}
+		result_ = [device newBufferWithLength:3 * sizeof(uint32_t) options:MTLResourceStorageModeShared];
 		pipeline_ = [device newComputePipelineStateWithFunction:[lib newFunctionWithName:@"blend"] error:&error];
 		if (!pipeline_) {
 			ERROR_LOG(Log::G3D, "Frame generation shader: %s", error.localizedDescription.UTF8String);
@@ -55,10 +62,14 @@ public:
 		FrameGeneration::displayCV.notify_all();
 		if (thread_.joinable()) thread_.join();
 	}
-	bool Ready() const { return pipeline_ != nil; }
-	void Push(id<MTLTexture> texture, double time, uint64_t serial) {
+	bool Ready() const { return pipeline_ != nil && result_ != nil; }
+	std::shared_ptr<MetalFrameTexture> AcquireCapture(NSUInteger width, NSUInteger height) {
+		return capturePool_.Acquire(device_, width, height, MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead);
+	}
+	void Push(std::shared_ptr<MetalFrameTexture> lease, double time, uint64_t serial) {
 		std::lock_guard<std::mutex> guard(mutex_);
-		if (frames_.size() == 3) {
+		if (time <= lastInputTime_) { FrameGeneration::dropped++; return; }
+		if (frames_.size() == 2) {
 			frames_.pop_front();
 			FrameGeneration::dropped++;
 		}
@@ -71,11 +82,12 @@ public:
 			inputPeriod_ = 0;
 		}
 		lastInputTime_ = time;
-		frames_.push_back({texture, time, serial, inputPeriod_});
+		frames_.push_back({std::move(lease), time, serial, inputPeriod_});
 		cv_.notify_one();
 	}
 private:
-	void Present(id<MTLTexture> texture) {
+	void Present(std::shared_ptr<MetalFrameTexture> lease, double sourceTime) {
+		id<MTLTexture> texture = lease->texture;
 		// One submission per actual display-link callback. Timed future presents can
 		// miss a vblank and occupy all three drawables, starving the real-frame queue.
 		{
@@ -95,13 +107,17 @@ private:
 			destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0, 0, 0)];
 		[enc endEncoding];
 		[drawable addPresentedHandler:^(id<MTLDrawable> d) {
-			if (d.presentedTime > 0.0) FrameGeneration::presented++;
+			if (d.presentedTime > 0.0) {
+				FrameGeneration::presented++;
+				FrameGeneration::RecordPresentation(d.presentedTime, sourceTime);
+			}
 		}];
+		[cmd addCompletedHandler:^(id<MTLCommandBuffer>) { (void)lease; }];
 		[cmd presentDrawable:drawable];
 		[cmd commit];
 	}
 	void Run() {
-		Frame previous{nil, 0, 0, 0};
+		Frame previous{{}, 0, 0, 0};
 		for (;;) {
 			@autoreleasepool {
 				Frame current;
@@ -112,26 +128,29 @@ private:
 					current = frames_.front();
 					frames_.pop_front();
 				}
+				if (CACurrentMediaTime() - current.time > 0.040) {
+					FrameGeneration::dropped++;
+					previous = {};
+					continue;
+				}
 				double interval = current.time - previous.time;
 				const uint64_t displayInterval = FrameGeneration::displayIntervalNS.load();
-				if (previous.texture && previous.serial + 1 == current.serial && interval > 0 && interval < 0.05 &&
-					current.period > 0.012 && current.period < 0.022 && displayInterval > 0 && displayInterval < 12000000 &&
-					previous.texture.width == current.texture.width && previous.texture.height == current.texture.height) {
-					MTLTextureDescriptor *desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:current.texture.pixelFormat
-						width:current.texture.width height:current.texture.height mipmapped:NO];
-					desc.usage = MTLTextureUsageShaderWrite | MTLTextureUsageShaderRead;
-					desc.storageMode = MTLStorageModePrivate;
-					id<MTLTexture> mixed = [device_ newTextureWithDescriptor:desc];
-					id<MTLBuffer> different = [device_ newBufferWithLength:sizeof(uint32_t) options:MTLResourceStorageModeShared];
-					*(uint32_t *)different.contents = 0;
+				if (previous.lease && previous.serial + 1 == current.serial && interval > 0 && interval < 0.05 &&
+					current.period > 0.012 && current.period < 0.022 && displayInterval > 0 && displayInterval < 12000000 && FrameGeneration::requestedHz.load() >= 90 &&
+					previous.lease->texture.width == current.lease->texture.width && previous.lease->texture.height == current.lease->texture.height) {
+					auto mixed = mixedPool_.Acquire(device_, current.lease->texture.width, current.lease->texture.height,
+						MTLTextureUsageShaderWrite | MTLTextureUsageShaderRead);
+					if (!mixed) { Present(current.lease, current.time); previous = current; continue; }
+					id<MTLBuffer> different = result_;
+					memset(different.contents, 0, 3 * sizeof(uint32_t));
 					id<MTLCommandBuffer> cmd = [queue_ commandBuffer];
 					id<MTLComputeCommandEncoder> enc = [cmd computeCommandEncoder];
 					[enc setComputePipelineState:pipeline_];
-					[enc setTexture:previous.texture atIndex:0];
-					[enc setTexture:current.texture atIndex:1];
-					[enc setTexture:mixed atIndex:2];
+					[enc setTexture:previous.lease->texture atIndex:0];
+					[enc setTexture:current.lease->texture atIndex:1];
+					[enc setTexture:mixed->texture atIndex:2];
 					[enc setBuffer:different offset:0 atIndex:0];
-					[enc dispatchThreads:MTLSizeMake(desc.width, desc.height, 1) threadsPerThreadgroup:MTLSizeMake(8, 8, 1)];
+					[enc dispatchThreads:MTLSizeMake(current.lease->texture.width, current.lease->texture.height, 1) threadsPerThreadgroup:MTLSizeMake(8, 8, 1)];
 					[enc endEncoding];
 					[cmd commit];
 					// Only this worker waits; the CPU sees one flag, never image pixels.
@@ -140,12 +159,15 @@ private:
 						FrameGeneration::shaderNS += (uint64_t)((cmd.GPUEndTime - cmd.GPUStartTime) * 1e9);
 						FrameGeneration::shaderSamples++;
 					}
-					if (cmd.status == MTLCommandBufferStatusCompleted && *(uint32_t *)different.contents) {
+					const uint32_t *comparison = (const uint32_t *)different.contents;
+					bool cut = comparison[1] > 0 && (uint64_t)comparison[2] * 100 > (uint64_t)comparison[1] * 85;
+					if (cmd.status == MTLCommandBufferStatusCompleted && cut) FrameGeneration::sceneCuts++;
+					if (cmd.status == MTLCommandBufferStatusCompleted && comparison[0] && !cut) {
 						FrameGeneration::generated++;
-						Present(mixed);
+						Present(mixed, (previous.time + current.time) * .5);
 					}
 				}
-				Present(current.texture);
+				Present(current.lease, current.time);
 				previous = current;
 			}
 		}
@@ -158,6 +180,8 @@ private:
 	CAMetalLayer *layer_;
 	id<MTLCommandQueue> queue_;
 	id<MTLComputePipelineState> pipeline_;
+	id<MTLBuffer> result_;
+	MetalFrameTexturePool capturePool_, mixedPool_;
 	std::thread thread_;
 	std::mutex mutex_;
 	std::condition_variable cv_;
