@@ -128,3 +128,14 @@ generated, presented, dropped, shaderNS, shaderSamples, displayTicks,
 displayIntervalNS, requestedHz. Counters are cumulative; use successive deltas
 and elapsed wall time. Display-link callbacks are not proof of distinct physical
 scanouts. The corrected cadence still requires another test on the iPhone.
+
+Second build result: source `0072798`, successful Xcode archive and actual GPU
+midpoint/identical-pair test (BGRA8) in run
+https://github.com/wendells01/ppsspp/actions/runs/43426780093 .
+Artifact: https://github.com/wendells01/ppsspp/actions/runs/43426780093/artifacts/14037713522 .
+Delivered file: `PPSSPP-FrameGeneration-v2-0072798.ipa`, 20,019,819 bytes,
+SHA256 `6589103c59826012567c1883f2b6188a12f0cb580175ce97ae3ae96108fc03da`.
+Local inspection confirmed arm64, the ProMotion key, source revision, new overlay
+labels and debugger fields. The new `gpu.stats.get` fields were also verified
+through a live local debugger connection. Improved iPhone cadence remains pending
+reinstallation and another device measurement.
