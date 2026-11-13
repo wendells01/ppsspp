@@ -29,6 +29,7 @@
 #include "Core/System.h"
 #include "GPU/GPU.h"
 #include "Common/GPU/Metal/MetalFrameGeneration.h"
+#include "Common/GPU/Metal/MetalVisualEffects.h"
 #include "Common/Thread/ThreadUtil.h"
 #include "Common/Thread/ThreadManager.h"
 
@@ -460,6 +461,8 @@ void MetalRenderManager::Submit(MetalChunkEnd end, bool vsync, dispatch_semaphor
 	chunk->vsync = vsync;
 #if PPSSPP_PLATFORM(IOS) && !PPSSPP_PLATFORM(TVOS)
 	chunk->frameGeneration = g_Config.bExperimentalFrameGeneration && GetUIState() == UISTATE_INGAME;
+	chunk->visualColor = g_Config.bExperimentalGTColor && GetUIState() == UISTATE_INGAME;
+	chunk->visualAO = g_Config.bExperimentalDepthAO && GetUIState() == UISTATE_INGAME;
 	chunk->sourceSerial = gpuStats.totals.numFlips;
 	chunk->sourceTime = CACurrentMediaTime();
 #endif
@@ -1241,6 +1244,8 @@ void MetalRenderManager::MergeSteps(MetalCommandChunk &chunk) {
 	}
 }
 
+static char visualDepthKey;
+
 void MetalRenderManager::ReplayPass(const MetalCommandChunk &chunk, MetalStep &step, id<MTLCommandBuffer> cmd) {
 	if (rtBlit_) {
 		[rtBlit_ endEncoding];
@@ -1251,6 +1256,26 @@ void MetalRenderManager::ReplayPass(const MetalCommandChunk &chunk, MetalStep &s
 	if (pass.swapchain && !color) {
 		// No drawable (the window isn't visible?). Drop the pass.
 		return;
+	}
+	// Process only game framebuffer textures sampled by the presentation pass.
+	// UI atlas textures have no paired depth and remain untouched.
+	NSMutableDictionary<NSValue *, id<MTLTexture>> *processed = nil;
+	if (pass.swapchain && (chunk.visualColor || chunk.visualAO)) {
+		for (const auto &range : step.ranges) for (uint32_t i = range.first; i < range.second; i++) {
+			const MetalCommand &c = chunk.commands[i];
+			if (c.cmd != MetalCmd::FRAGMENT_TEXTURE || c.index != 0 || !c.bind.obj) continue;
+			id<MTLTexture> source = (__bridge id<MTLTexture>)BaseTexture(c.bind.obj);
+			id<MTLTexture> pairedDepth = objc_getAssociatedObject(source, &visualDepthKey);
+			NSValue *key = [NSValue valueWithPointer:c.bind.obj];
+			if (!pairedDepth || processed[key] || source.textureType != MTLTextureType2D) continue;
+			if (!visualEffects_) visualEffects_ = std::make_shared<MetalVisualEffects>(device_);
+			id<MTLTexture> result = visualEffects_->Encode(cmd, source, pairedDepth, chunk.visualColor, chunk.visualAO);
+			if (result) {
+				if (!processed) processed = [NSMutableDictionary dictionary];
+				id<MTLTexture> bound = (__bridge id<MTLTexture>)c.bind.obj;
+				processed[key] = bound.textureType == MTLTextureType2DArray ? ArrayView(result) : result;
+			}
+		}
 	}
 	MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
 	if (color) {
@@ -1268,6 +1293,8 @@ void MetalRenderManager::ReplayPass(const MetalCommandChunk &chunk, MetalStep &s
 	}
 	id<MTLTexture> depth = (__bridge id<MTLTexture>)pass.depth;
 	if (depth) {
+		if (!pass.swapchain && color && !pass.depthMemoryless && step.usesDepth)
+			objc_setAssociatedObject(color, &visualDepthKey, depth, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 		MTLLoadAction depthLoad = pass.depthLoad;
 		MTLLoadAction stencilLoad = pass.stencilLoad;
 		MTLStoreAction store = MTLStoreActionStore;
@@ -1278,7 +1305,7 @@ void MetalRenderManager::ReplayPass(const MetalCommandChunk &chunk, MetalStep &s
 			if (stencilLoad == MTLLoadActionLoad)
 				stencilLoad = MTLLoadActionClear;
 			store = MTLStoreActionDontCare;
-		} else if (!step.usesDepth && depthLoad != MTLLoadActionClear && stencilLoad != MTLLoadActionClear) {
+		} else if (!chunk.visualAO && !step.usesDepth && depthLoad != MTLLoadActionClear && stencilLoad != MTLLoadActionClear) {
 			// Nothing in the pass touches depth or stencil, so leave the memory as it is. The Vulkan backend
 			// doesn't even attach depth then. Saves bandwidth, especially on tilers.
 			depthLoad = MTLLoadActionDontCare;
@@ -1344,7 +1371,11 @@ void MetalRenderManager::ReplayPass(const MetalCommandChunk &chunk, MetalStep &s
 			case MetalCmd::VERTEX_BUFFER_OFFSET: [enc setVertexBufferOffset:c.bind.offset atIndex:c.index]; break;
 			case MetalCmd::FRAGMENT_BUFFER: [enc setFragmentBuffer:(__bridge id<MTLBuffer>)c.bind.obj offset:c.bind.offset atIndex:c.index]; break;
 			case MetalCmd::FRAGMENT_BUFFER_OFFSET: [enc setFragmentBufferOffset:c.bind.offset atIndex:c.index]; break;
-			case MetalCmd::FRAGMENT_TEXTURE: [enc setFragmentTexture:(__bridge id<MTLTexture>)c.bind.obj atIndex:c.index]; break;
+			case MetalCmd::FRAGMENT_TEXTURE: {
+				id<MTLTexture> replacement = processed ? processed[[NSValue valueWithPointer:c.bind.obj]] : nil;
+				[enc setFragmentTexture:replacement ?: (__bridge id<MTLTexture>)c.bind.obj atIndex:c.index];
+				break;
+			}
 			case MetalCmd::FRAGMENT_SAMPLER: [enc setFragmentSamplerState:(__bridge id<MTLSamplerState>)c.bind.obj atIndex:c.index]; break;
 			case MetalCmd::DRAW: if (pipelineOK) [enc drawPrimitives:(MTLPrimitiveType)c.prim vertexStart:c.draw.start vertexCount:c.draw.count]; break;
 			case MetalCmd::DRAW_INDEXED:

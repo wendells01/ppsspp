@@ -322,6 +322,8 @@ public:
 	// vsync = true, low latency present = false: FIFO
 	bool bVSync;
 	bool bExperimentalFrameGeneration;
+	bool bExperimentalGTColor;
+	bool bExperimentalDepthAO;
 	bool bLowLatencyPresent;
 
 	bool bSoftwareRendering;

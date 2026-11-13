@@ -29,6 +29,17 @@ jobs:
           else
             exit "$result"
           fi
+      - name: Compile and exercise Metal visual effects
+        run: |
+          clang++ -std=c++17 -fobjc-arc -I. tests/metal/VisualEffectsTest.mm -framework Foundation -framework Metal -o /tmp/visual-effects-test
+          set +e
+          /tmp/visual-effects-test
+          result=$?
+          if [ "$result" = 77 ]; then
+            echo '::warning::No Metal device on runner; effects GPU test skipped'
+          else
+            exit "$result"
+          fi
       - name: Configure
         run: |
           cmake -S . -B build-fg -G Xcode \

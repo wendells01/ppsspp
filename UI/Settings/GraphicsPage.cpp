@@ -160,6 +160,8 @@ void BuildGraphicsSettings(SettingsPage *page) {
 	page->Header("Rendering");
 #if PPSSPP_PLATFORM(IOS) && !PPSSPP_PLATFORM(TVOS)
 	page->Setting(&g_Config.bExperimentalFrameGeneration);
+	page->Setting(&g_Config.bExperimentalGTColor);
+	page->Setting(&g_Config.bExperimentalDepthAO);
 #endif
 
 #if !PPSSPP_PLATFORM(UWP)

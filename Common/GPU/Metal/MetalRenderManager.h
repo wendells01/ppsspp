@@ -27,6 +27,7 @@
 
 #include <memory>
 class MetalFrameGeneration;
+class MetalVisualEffects;
 struct MetalFrameTexture;
 
 #import <Metal/Metal.h>
@@ -334,6 +335,8 @@ struct MetalCommandChunk {
 	std::vector<MetalRecordedDispatch> dispatches;
 	MetalChunkEnd end = MetalChunkEnd::FLUSH;
 	bool frameGeneration = false;
+	bool visualColor = false;
+	bool visualAO = false;
 	uint64_t sourceSerial = 0;
 	double sourceTime = 0;
 	bool vsync = true;
@@ -361,6 +364,7 @@ struct MetalCommandChunk {
 };
 
 class MetalRenderManager {
+	std::shared_ptr<MetalVisualEffects> visualEffects_;
 public:
 	// layer can be nil, in which case we render to an offscreen backbuffer of the given size.
 	MetalRenderManager(id<MTLDevice> device, CAMetalLayer *layer, int offscreenWidth, int offscreenHeight, bool useThread);

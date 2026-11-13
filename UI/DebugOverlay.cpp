@@ -559,6 +559,7 @@ Invalid / Unknown (%d)
 }
 
 #include "Common/GPU/Metal/FrameGenerationStats.h"
+#include "Common/GPU/Metal/VisualEffectsStats.h"
 
 void DrawFPS(UIContext *ctx, const Bounds &bounds) {
 	FontID ubuntu24("UBUNTU24");
@@ -609,6 +610,11 @@ void DrawFPS(UIContext *ctx, const Bounds &bounds) {
 		}
 		w.F("\nFG real %.1f | generated %.1f | presented %.1f\nGPU blend %.3f ms | display link %.1f Hz | drops %.1f/s", rf, gf, pf, ms, hz, df);
 		w.F("\nP95 frame %.2f ms | pipeline %.1f ms | cuts %llu", metrics.intervalP95, metrics.latencyP95, (unsigned long long)sceneCuts.load());
+	}
+	if (g_Config.bExperimentalGTColor || g_Config.bExperimentalDepthAO) {
+		w.F("\nFX completed: color %llu | depth AO %llu",
+			(unsigned long long)VisualEffects::colorFrames.load(),
+			(unsigned long long)VisualEffects::aoFrames.load());
 	}
 	ctx->Flush();
 

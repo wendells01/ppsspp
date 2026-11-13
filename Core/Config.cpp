@@ -1030,6 +1030,10 @@ static constexpr ConfigSetting graphicsSettings[] = {
 		.Label(I18NCat::GRAPHICS, "VSync"),
 	ConfigSetting("ExperimentalFrameGeneration", SETTING(g_Config, bExperimentalFrameGeneration), false, CfgFlag::PER_GAME)
 		.Label(I18NCat::GRAPHICS, "Experimental Frame Generation"),
+	ConfigSetting("ExperimentalGTColor", SETTING(g_Config, bExperimentalGTColor), false, CfgFlag::PER_GAME)
+		.Label(I18NCat::GRAPHICS, "Experimental GT Color + Selective Bloom"),
+	ConfigSetting("ExperimentalDepthAO", SETTING(g_Config, bExperimentalDepthAO), false, CfgFlag::PER_GAME)
+		.Label(I18NCat::GRAPHICS, "Experimental Depth Ambient Occlusion"),
 	ConfigSetting("LowLatencyPresent", SETTING(g_Config, bLowLatencyPresent), false, CfgFlag::PER_GAME)
 		.Label(I18NCat::GRAPHICS, "Low latency display"),
 	ConfigSetting("BloomHack", SETTING(g_Config, iBloomHack), 0, CfgFlag::PER_GAME | CfgFlag::REPORT)
