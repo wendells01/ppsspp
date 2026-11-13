@@ -1,0 +1,57 @@
+name: iOS Experimental Frame Generation
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Toolchain
+        run: xcodebuild -version
+      - name: Compile and exercise Metal blend kernel
+        run: |
+          clang++ -std=c++17 -fobjc-arc -I. tests/metal/FrameBlendTest.mm -framework Foundation -framework Metal -o /tmp/frame-blend-test
+          set +e
+          /tmp/frame-blend-test
+          result=$?
+          if [ "$result" = 77 ]; then
+            echo '::warning::No Metal device on runner; GPU test skipped'
+          else
+            exit "$result"
+          fi
+      - name: Configure
+        run: |
+          cmake -S . -B build-fg -G Xcode \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/Toolchains/ios.cmake \
+            -DIOS_APP_STORE=OFF -DUSE_IAP=OFF
+      - name: Build unsigned device archive
+        run: |
+          set -o pipefail
+          xcodebuild -project build-fg/PPSSPP.xcodeproj -scheme PPSSPP \
+            -sdk iphoneos -configuration Release archive \
+            -archivePath "$PWD/build-fg/PPSSPP.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO | tee build-fg/xcodebuild.log
+      - name: Package for AltStore or SideStore signing
+        run: |
+          mkdir -p build-fg/package/Payload
+          cp -R build-fg/PPSSPP.xcarchive/Products/Applications/PPSSPP.app build-fg/package/Payload/
+          /usr/libexec/PlistBuddy -c 'Print :CADisableMinimumFrameDurationOnPhone' build-fg/package/Payload/PPSSPP.app/Info.plist
+          cd build-fg/package
+          zip -qry ../PPSSPP-FrameGeneration-unsigned.ipa Payload
+          unzip -t ../PPSSPP-FrameGeneration-unsigned.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PPSSPP-FrameGeneration-unsigned
+          path: build-fg/PPSSPP-FrameGeneration-unsigned.ipa
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-build-log
+          path: build-fg/xcodebuild.log

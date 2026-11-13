@@ -1028,6 +1028,8 @@ static constexpr ConfigSetting graphicsSettings[] = {
 	ConfigSetting("TexHardwareScaling", SETTING(g_Config, bTexHardwareScaling), false, CfgFlag::PER_GAME | CfgFlag::REPORT),
 	ConfigSetting("VerticalSync", SETTING(g_Config, bVSync), true, CfgFlag::PER_GAME)
 		.Label(I18NCat::GRAPHICS, "VSync"),
+	ConfigSetting("ExperimentalFrameGeneration", SETTING(g_Config, bExperimentalFrameGeneration), false, CfgFlag::PER_GAME)
+		.Label(I18NCat::GRAPHICS, "Experimental Frame Generation"),
 	ConfigSetting("LowLatencyPresent", SETTING(g_Config, bLowLatencyPresent), false, CfgFlag::PER_GAME)
 		.Label(I18NCat::GRAPHICS, "Low latency display"),
 	ConfigSetting("BloomHack", SETTING(g_Config, iBloomHack), 0, CfgFlag::PER_GAME | CfgFlag::REPORT)

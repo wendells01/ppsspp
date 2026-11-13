@@ -25,6 +25,9 @@
 // actions have to be known up front), and state setters eliminate redundant calls. The replay merges passes
 // to the same framebuffer where nothing in between depends on them, and encodes.
 
+#include <memory>
+class MetalFrameGeneration;
+
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
 
@@ -226,6 +229,9 @@ struct MetalCommand {
 // A layer we present to, or an offscreen backbuffer of a fixed size. The render manager owns them, and
 // the first one is the backbuffer.
 struct MetalSwapchain {
+	std::shared_ptr<MetalFrameGeneration> frameGeneration;
+	id<MTLTexture> generationTarget;
+	uint64_t generationSerial = UINT64_MAX;
 	CAMetalLayer *layer = nil;  // nil for an offscreen backbuffer.
 	id<MTLTexture> offscreen;
 	id<MTLTexture> depth;
@@ -325,6 +331,9 @@ struct MetalCommandChunk {
 	std::vector<MetalRecordedCopy> copies;
 	std::vector<MetalRecordedDispatch> dispatches;
 	MetalChunkEnd end = MetalChunkEnd::FLUSH;
+	bool frameGeneration = false;
+	uint64_t sourceSerial = 0;
+	double sourceTime = 0;
 	bool vsync = true;
 	struct DrawableResize {
 		MetalSwapchain *swapchain;

@@ -158,6 +158,9 @@ void BuildGraphicsSettings(SettingsPage *page) {
 	int deviceType = System_GetPropertyInt(SYSPROP_DEVICE_TYPE);
 
 	page->Header("Rendering");
+#if PPSSPP_PLATFORM(IOS) && !PPSSPP_PLATFORM(TVOS)
+	page->Setting(&g_Config.bExperimentalFrameGeneration);
+#endif
 
 #if !PPSSPP_PLATFORM(UWP)
 	page->Setting(&g_Config.iGPUBackend).Visible(HasBackendChoice()).Setup([host](View *view) {

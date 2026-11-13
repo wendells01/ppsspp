@@ -25,6 +25,10 @@
 #include "Common/GPU/Vulkan/VulkanContext.h"
 #include "Common/Log.h"
 #include "Common/StringUtils.h"
+#include "Core/Config.h"
+#include "Core/System.h"
+#include "GPU/GPU.h"
+#include "Common/GPU/Metal/MetalFrameGeneration.h"
 #include "Common/Thread/ThreadUtil.h"
 #include "Common/Thread/ThreadManager.h"
 
@@ -454,6 +458,11 @@ void MetalRenderManager::Submit(MetalChunkEnd end, bool vsync, dispatch_semaphor
 	MetalCommandChunk *chunk = chunk_;
 	chunk->end = end;
 	chunk->vsync = vsync;
+#if PPSSPP_PLATFORM(IOS) && !PPSSPP_PLATFORM(TVOS)
+	chunk->frameGeneration = g_Config.bExperimentalFrameGeneration && GetUIState() == UISTATE_INGAME;
+	chunk->sourceSerial = gpuStats.totals.numFlips;
+	chunk->sourceTime = CACurrentMediaTime();
+#endif
 	chunk->completed = completed;
 	for (MetalSwapchain *swapchain : swapchains_) {
 		if (swapchain->pendingWidth > 0) {
@@ -926,6 +935,19 @@ id<MTLTexture> MetalRenderManager::ReplaySwapchainTexture(MetalSwapchain *swapch
 	if (!swapchain->layer) {
 		return swapchain->offscreen;
 	}
+	if (swapchain->frameGeneration) {
+		if (!swapchain->generationTarget) {
+			CGSize size = swapchain->layer.drawableSize;
+			if (size.width < 1 || size.height < 1) return nil;
+			MTLTextureDescriptor *desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+				width:(NSUInteger)size.width height:(NSUInteger)size.height mipmapped:NO];
+			desc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+			desc.storageMode = MTLStorageModePrivate;
+			swapchain->generationTarget = [device_ newTextureWithDescriptor:desc];
+			rtAcquired_.push_back(swapchain);
+		}
+		return swapchain->generationTarget;
+	}
 	if (!swapchain->drawable && swapchain->noDrawableFrame != replayFrame_) {
 		@autoreleasepool {
 			swapchain->drawable = [swapchain->layer nextDrawable];
@@ -983,6 +1005,16 @@ void MetalRenderManager::ReplayDispatch(const MetalRecordedDispatch &dispatch, i
 }
 
 void MetalRenderManager::Replay(MetalCommandChunk *chunk) {
+	for (MetalSwapchain *swapchain : swapchains_) {
+		if (!swapchain->layer) continue;
+		if (chunk->frameGeneration && !swapchain->frameGeneration) {
+			auto presenter = std::make_shared<MetalFrameGeneration>(device_, swapchain->layer);
+			if (presenter->Ready()) swapchain->frameGeneration = presenter;
+		} else if (!chunk->frameGeneration && swapchain->frameGeneration && !swapchain->generationTarget) {
+			swapchain->frameGeneration.reset();
+			swapchain->generationSerial = UINT64_MAX;
+		}
+	}
 	for (const auto &resize : chunk->drawableResizes) {
 		resize.swapchain->layer.drawableSize = CGSizeMake(resize.width, resize.height);
 	}
@@ -1028,6 +1060,24 @@ void MetalRenderManager::Replay(MetalCommandChunk *chunk) {
 	NSMutableArray *drawables = nil;
 	if (chunk->end == MetalChunkEnd::PRESENT) {
 		for (MetalSwapchain *swapchain : rtAcquired_) {
+			if (swapchain->generationTarget) {
+				id<MTLTexture> texture = swapchain->generationTarget;
+				bool newFrame = swapchain->generationSerial != chunk->sourceSerial;
+				swapchain->generationSerial = chunk->sourceSerial;
+				std::weak_ptr<MetalFrameGeneration> weak = swapchain->frameGeneration;
+				double time = chunk->sourceTime;
+				[cmd addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
+					// Also retains the target used by this unretained command buffer.
+					if (buffer.status == MTLCommandBufferStatusCompleted && newFrame) {
+						if (auto presenter = weak.lock()) {
+							FrameGeneration::real++;
+							presenter->Push(texture, time);
+						}
+					}
+				}];
+				swapchain->generationTarget = nil;
+				continue;
+			}
 #if PPSSPP_PLATFORM(MAC)
 			if (swapchain->layer.displaySyncEnabled != chunk->vsync) {
 				swapchain->layer.displaySyncEnabled = chunk->vsync;

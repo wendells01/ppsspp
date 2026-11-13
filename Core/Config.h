@@ -321,6 +321,7 @@ public:
 	// vsync = true, low latency present = true: Mailbox
 	// vsync = true, low latency present = false: FIFO
 	bool bVSync;
+	bool bExperimentalFrameGeneration;
 	bool bLowLatencyPresent;
 
 	bool bSoftwareRendering;

@@ -63,9 +63,17 @@
 
 // The view, backed by the CAMetalLayer we render to.
 @interface PPSSPPMetalView : UIView
+- (void)frameGenerationRefresh:(CADisplayLink *)link;
 @end
 
 @implementation PPSSPPMetalView
+
+- (void)frameGenerationRefresh:(CADisplayLink *)link {
+	int rate = g_Config.bExperimentalFrameGeneration ? 120 : 60;
+	if (@available(iOS 15.0, *)) {
+		link.preferredFrameRateRange = g_Config.bExperimentalFrameGeneration ? CAFrameRateRangeMake(30, rate, rate) : CAFrameRateRangeDefault;
+	}
+}
 
 + (Class)layerClass {
 	return [CAMetalLayer class];
@@ -146,6 +154,7 @@ static void RenderLoop(GraphicsContext *graphicsContext, CAMetalLayer *metalLaye
 }
 
 @property (nonatomic) GCController *gameController;
+@property (nonatomic, strong) CADisplayLink *frameGenerationRefresh;
 #if !PPSSPP_PLATFORM(TVOS)
 @property (strong, nonatomic) NSOperationQueue *accelerometerQueue;
 @property (strong, nonatomic) CMMotionManager *motionManager;
@@ -251,6 +260,7 @@ static int GetPickerRequestId(id picker) {
 }
 
 - (void)dealloc {
+	[self.frameGenerationRefresh invalidate];
 	INFO_LOG(Log::System, "dealloc");
 }
 
@@ -612,6 +622,9 @@ static int GetPickerRequestId(id picker) {
 
 - (void)viewDidLoad {
 	[super viewDidLoad];
+	// A display-rate request only. Presentation is paced independently on its worker.
+	self.frameGenerationRefresh = [CADisplayLink displayLinkWithTarget:self.view selector:@selector(frameGenerationRefresh:)];
+	[self.frameGenerationRefresh addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
 
 	INFO_LOG(Log::System, "viewDidLoad");
 

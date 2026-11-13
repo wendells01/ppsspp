@@ -2077,7 +2077,7 @@ void EmuScreen::renderUI() {
 		if ((DebugOverlay)g_Config.iDebugOverlay == DebugOverlay::CONTROL) {
 			DrawControlMapperOverlay(ctx, ctx->GetLayoutBounds(ViewLayoutMode::ApplyInsets, UseImmersiveMode()), g_controlMapper);
 		}
-		if (g_Config.iShowStatusFlags) {
+		if (g_Config.iShowStatusFlags || g_Config.bExperimentalFrameGeneration) {
 			// Top right, so it can't skip the side insets like the controls can.
 			DrawFPS(ctx, ctx->GetLayoutBounds(ViewLayoutMode::ApplyInsets, UseImmersiveMode()));
 		}

@@ -3,6 +3,7 @@
 #include "Common/System/System.h"
 #include "Common/Data/Text/I18n.h"
 #include "Common/CPUDetect.h"
+#include "Common/TimeUtil.h"
 #include "Common/StringUtils.h"
 #include "Common/Data/Text/StringWriter.h"
 #include "Common/Data/Text/Parsers.h"
@@ -557,6 +558,8 @@ Invalid / Unknown (%d)
 	ctx->RebindTexture();
 }
 
+#include "Common/GPU/Metal/FrameGenerationStats.h"
+
 void DrawFPS(UIContext *ctx, const Bounds &bounds) {
 	FontID ubuntu24("UBUNTU24");
 	float vps, fps, actual_fps;
@@ -585,6 +588,22 @@ void DrawFPS(UIContext *ctx, const Bounds &bounds) {
 		}
 	}
 
+	if (g_Config.bExperimentalFrameGeneration) {
+		using namespace FrameGeneration;
+		static double last = 0;
+		static uint64_t r = 0, g = 0, p = 0, ns = 0, samples = 0;
+		static double rf = 0, gf = 0, pf = 0, ms = 0;
+		double now = time_now_d();
+		if (now - last >= 1.0) {
+			auto nr = real.load(), ng = generated.load(), np = presented.load(), nn = shaderNS.load();
+			rf = (nr - r) / (now - last); gf = (ng - g) / (now - last); pf = (np - p) / (now - last);
+			auto nSamples = shaderSamples.load();
+			ms = nSamples > samples ? (nn - ns) / (double)(nSamples - samples) / 1e6 : 0;
+			samples = nSamples;
+			r = nr; g = ng; p = np; ns = nn; last = now;
+		}
+		w.F("\nFG real %.1f | generated %.1f | presented %.1f\nGPU blend %.3f ms", rf, gf, pf, ms);
+	}
 	ctx->Flush();
 
 	float offset = 10.0f;
