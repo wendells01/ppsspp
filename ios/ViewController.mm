@@ -14,6 +14,7 @@
 #include <thread>
 #include "Common/GPU/GraphicsContext.h"
 #include "Common/GPU/Metal/MetalGraphicsContext.h"
+#include "Common/GPU/Metal/FrameGenerationStats.h"
 #include "Common/System/Request.h"
 #include "Common/System/System.h"
 #include "Common/Input/InputState.h"
@@ -69,10 +70,17 @@
 @implementation PPSSPPMetalView
 
 - (void)frameGenerationRefresh:(CADisplayLink *)link {
-	int rate = g_Config.bExperimentalFrameGeneration ? 120 : 60;
+	const bool enabled = g_Config.bExperimentalFrameGeneration;
 	if (@available(iOS 15.0, *)) {
-		link.preferredFrameRateRange = g_Config.bExperimentalFrameGeneration ? CAFrameRateRangeMake(30, rate, rate) : CAFrameRateRangeDefault;
+		CAFrameRateRange range = enabled ? CAFrameRateRangeMake(120, 120, 120) : CAFrameRateRangeDefault;
+		if (!CAFrameRateRangeIsEqualToRange(link.preferredFrameRateRange, range)) {
+			link.preferredFrameRateRange = range;
+		}
 	}
+	FrameGeneration::requestedHz = enabled ? 120 : 0;
+	static CFTimeInterval previous = 0;
+	FrameGeneration::DisplayTick(previous > 0 ? link.timestamp - previous : 0);
+	previous = link.timestamp;
 }
 
 + (Class)layerClass {

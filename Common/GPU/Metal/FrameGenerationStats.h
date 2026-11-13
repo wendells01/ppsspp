@@ -18,8 +18,24 @@
 #pragma once
 #include <atomic>
 #include <cstdint>
+#include <condition_variable>
+#include <mutex>
 
 // Cumulative measured events. Read by the overlay, written by GPU/presentation callbacks.
 namespace FrameGeneration {
 inline std::atomic<uint64_t> real{0}, generated{0}, presented{0}, shaderNS{0}, shaderSamples{0}, dropped{0};
+inline std::atomic<uint64_t> displayTicks{0}, displayIntervalNS{0};
+inline std::atomic<int> requestedHz{0};
+inline std::mutex displayMutex;
+inline std::condition_variable displayCV;
+
+// Called on UIKit's display link. Never acquire a drawable or wait for GPU work here.
+inline void DisplayTick(double interval) {
+	if (interval > 0.0) displayIntervalNS = (uint64_t)(interval * 1e9);
+	{
+		std::lock_guard<std::mutex> guard(displayMutex);
+		displayTicks++;
+	}
+	displayCV.notify_all();
+}
 }

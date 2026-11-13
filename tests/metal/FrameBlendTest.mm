@@ -30,7 +30,7 @@ int main() {
 		if (!library) { fprintf(stderr, "%s\n", error.localizedDescription.UTF8String); return 1; }
 		id<MTLComputePipelineState> pipeline = [device newComputePipelineStateWithFunction:[library newFunctionWithName:@"blend"] error:&error];
 		assert(pipeline);
-		MTLTextureDescriptor *desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:2 height:1 mipmapped:NO];
+		MTLTextureDescriptor *desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm width:2 height:1 mipmapped:NO];
 		desc.storageMode = MTLStorageModeShared;
 		desc.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
 		id<MTLTexture> a = [device newTextureWithDescriptor:desc], b = [device newTextureWithDescriptor:desc], out = [device newTextureWithDescriptor:desc];

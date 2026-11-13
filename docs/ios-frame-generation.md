@@ -15,15 +15,16 @@ command queues only after their producer has finished; resources are retained
 through command completion. The presenter owns its own worker and Metal queue.
 
 The worker presents A, waits for B, computes (A+B)/2, then presents AB and B.
-There is lookahead latency, plus GPU and drawable queue latency. Deadlines advance
-at 1/120 second and reset after stalls; they do not drive emulation. A main-run-loop
+There is lookahead latency, plus GPU and drawable queue latency. The worker submits at most one drawable per CADisplayLink callback;
+callbacks do not drive emulation. Future timed presents and synthetic sleep
+deadlines are not used. A main-run-loop
 CADisplayLink requests the ProMotion range; it does no rendering. The plist removes
 the phone's default minimum-frame-duration restriction. Actual refresh remains
 under iOS control (power, temperature, external display, GPU load).
 
 A compute shader also sets a four-byte difference flag. Identical images never
-increment generated FPS. No CPU image readback occurs. Only source intervals of
-10–22 ms are eligible: a steady 30 FPS stream gets no generated frames. This is a
+increment generated FPS. No CPU image readback occurs. Only adjacent source serials with a smoothed input period of
+12–22 ms and display callbacks above 83 Hz are eligible: a steady 30 FPS stream gets no generated frames. This is a
 conservative initial gate, not a claim of 120 FPS from slow games. The midpoint
 is simple blending in the existing unorm color space, with expected ghosting.
 
@@ -106,3 +107,24 @@ are completed. This prototype has no optical flow or motion estimation.
 
 Installation, normal OFF behavior on device, real game intermediate images,
 physics/audio pacing, and 120-Hz scanout remain untested on the iPhone.
+
+## Presentation correction (second build)
+
+Device report on the first build: real 59.9, generated 19.7, presented 59.9,
+GPU blend 0.912 ms. Enabling the upstream duplicate-to-60-Hz option reportedly
+raised presented to around 100. This does not prove a fixed 60-Hz system cap.
+Live debugger confirmed JIT and normal emulation speed (ratio 1.004).
+
+The second build replaces sleep/future-time presentation with a display-link
+condition signal and untimed presentation on the worker. The rate request is
+120/120/120, only changed when necessary. It reports actual callback frequency
+and queue drops. At 60-Hz callbacks it skips intermediates to preserve real
+frames. It also smooths source arrival cadence before queue drops, avoiding
+rejecting a 60-FPS stream merely because host submissions arrive irregularly.
+Serial adjacency and GPU image difference checks remain mandatory.
+
+`gpu.stats.get` now includes a `frameGeneration` object: enabled, real,
+generated, presented, dropped, shaderNS, shaderSamples, displayTicks,
+displayIntervalNS, requestedHz. Counters are cumulative; use successive deltas
+and elapsed wall time. Display-link callbacks are not proof of distinct physical
+scanouts. The corrected cadence still requires another test on the iPhone.

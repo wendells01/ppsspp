@@ -1066,12 +1066,13 @@ void MetalRenderManager::Replay(MetalCommandChunk *chunk) {
 				swapchain->generationSerial = chunk->sourceSerial;
 				std::weak_ptr<MetalFrameGeneration> weak = swapchain->frameGeneration;
 				double time = chunk->sourceTime;
+				uint64_t serial = chunk->sourceSerial;
 				[cmd addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
 					// Also retains the target used by this unretained command buffer.
 					if (buffer.status == MTLCommandBufferStatusCompleted && newFrame) {
 						if (auto presenter = weak.lock()) {
 							FrameGeneration::real++;
-							presenter->Push(texture, time);
+							presenter->Push(texture, time, serial);
 						}
 					}
 				}];

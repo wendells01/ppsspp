@@ -32,6 +32,8 @@ public:
 	struct Frame {
 		id<MTLTexture> texture;
 		double time;
+		uint64_t serial;
+		double period;
 	};
 	MetalFrameGeneration(id<MTLDevice> device, CAMetalLayer *layer) : device_(device), layer_(layer) {
 		queue_ = [device newCommandQueue];
@@ -50,24 +52,39 @@ public:
 			stop_ = true;
 		}
 		cv_.notify_all();
+		FrameGeneration::displayCV.notify_all();
 		if (thread_.joinable()) thread_.join();
 	}
 	bool Ready() const { return pipeline_ != nil; }
-	void Push(id<MTLTexture> texture, double time) {
+	void Push(id<MTLTexture> texture, double time, uint64_t serial) {
 		std::lock_guard<std::mutex> guard(mutex_);
 		if (frames_.size() == 3) {
 			frames_.pop_front();
 			FrameGeneration::dropped++;
 		}
-		frames_.push_back({texture, time});
+		// Estimate the source cadence before queue drops. A single host scheduling gap
+		// must not turn a 60 FPS source into an ineligible pair.
+		double interval = time - lastInputTime_;
+		if (lastInputTime_ > 0 && interval > 0 && interval < 0.1) {
+			inputPeriod_ = inputPeriod_ > 0 ? inputPeriod_ * 0.875 + interval * 0.125 : interval;
+		} else {
+			inputPeriod_ = 0;
+		}
+		lastInputTime_ = time;
+		frames_.push_back({texture, time, serial, inputPeriod_});
 		cv_.notify_one();
 	}
 private:
 	void Present(id<MTLTexture> texture) {
-		// Explicit display deadlines, independent of emulation/VBlank. Never catch up in a burst.
-		double now = CACurrentMediaTime();
-		deadline_ = std::max(deadline_ + 1.0 / 120.0, now + 1.0 / 120.0);
-		std::this_thread::sleep_for(std::chrono::duration<double>(std::max(0.0, deadline_ - now - 0.002)));
+		// One submission per actual display-link callback. Timed future presents can
+		// miss a vblank and occupy all three drawables, starving the real-frame queue.
+		{
+			std::unique_lock<std::mutex> guard(FrameGeneration::displayMutex);
+			if (!FrameGeneration::displayCV.wait_for(guard, std::chrono::milliseconds(50), [this]() {
+				return stop_ || FrameGeneration::displayTicks.load() != lastDisplayTick_;
+			}) || stop_) return;
+			lastDisplayTick_ = FrameGeneration::displayTicks.load();
+		}
 		id<CAMetalDrawable> drawable = [layer_ nextDrawable];
 		if (!drawable) return;
 		if (drawable.texture.width != texture.width || drawable.texture.height != texture.height) return;
@@ -80,11 +97,11 @@ private:
 		[drawable addPresentedHandler:^(id<MTLDrawable> d) {
 			if (d.presentedTime > 0.0) FrameGeneration::presented++;
 		}];
-		[cmd presentDrawable:drawable atTime:deadline_];
+		[cmd presentDrawable:drawable];
 		[cmd commit];
 	}
 	void Run() {
-		Frame previous{nil, 0};
+		Frame previous{nil, 0, 0, 0};
 		for (;;) {
 			@autoreleasepool {
 				Frame current;
@@ -96,7 +113,9 @@ private:
 					frames_.pop_front();
 				}
 				double interval = current.time - previous.time;
-				if (previous.texture && interval > 0.010 && interval < 0.022 &&
+				const uint64_t displayInterval = FrameGeneration::displayIntervalNS.load();
+				if (previous.texture && previous.serial + 1 == current.serial && interval > 0 && interval < 0.05 &&
+					current.period > 0.012 && current.period < 0.022 && displayInterval > 0 && displayInterval < 12000000 &&
 					previous.texture.width == current.texture.width && previous.texture.height == current.texture.height) {
 					MTLTextureDescriptor *desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:current.texture.pixelFormat
 						width:current.texture.width height:current.texture.height mipmapped:NO];
@@ -143,6 +162,8 @@ private:
 	std::mutex mutex_;
 	std::condition_variable cv_;
 	std::deque<Frame> frames_;
-	bool stop_ = false;
-	double deadline_ = 0;
+	std::atomic<bool> stop_{false};
+	uint64_t lastDisplayTick_ = 0;
+	double lastInputTime_ = 0;
+	double inputPeriod_ = 0;
 };

@@ -24,6 +24,8 @@
 #include "Core/Core.h"
 #include "Core/HW/Display.h"
 #include "Core/System.h"
+#include "Core/Config.h"
+#include "Common/GPU/Metal/FrameGenerationStats.h"
 
 struct CollectedStats {
 	float vps;
@@ -33,6 +35,10 @@ struct CollectedStats {
 	std::vector<float> frameTimes;
 	std::vector<float> sleepTimes;
 	int frameTimePos;
+	bool fgEnabled;
+	uint64_t fgReal, fgGenerated, fgPresented, fgDropped, fgShaderNS, fgShaderSamples;
+	uint64_t fgDisplayTicks, fgDisplayIntervalNS;
+	int fgRequestedHz;
 };
 
 struct DebuggerGPUStatsEvent {
@@ -54,6 +60,18 @@ struct DebuggerGPUStatsEvent {
 		j.writeFloat("target", 60.0 / 1.001);
 		j.pop();
 		j.writeString("info", s.statbuf);
+		j.pushDict("frameGeneration");
+		j.writeBool("enabled", s.fgEnabled);
+		j.writeFloat("real", (double)s.fgReal);
+		j.writeFloat("generated", (double)s.fgGenerated);
+		j.writeFloat("presented", (double)s.fgPresented);
+		j.writeFloat("dropped", (double)s.fgDropped);
+		j.writeFloat("shaderNS", (double)s.fgShaderNS);
+		j.writeFloat("shaderSamples", (double)s.fgShaderSamples);
+		j.writeFloat("displayTicks", (double)s.fgDisplayTicks);
+		j.writeFloat("displayIntervalNS", (double)s.fgDisplayIntervalNS);
+		j.writeInt("requestedHz", s.fgRequestedHz);
+		j.pop();
 		j.pushDict("timing");
 		j.pushArray("frames");
 		for (double t : s.frameTimes)
@@ -127,6 +145,16 @@ void WebSocketGPUStatsState::FlipListener() {
 	CollectedStats &stats = pendingStats_[pendingStats_.size() - 1];
 
 	__DisplayGetFPS(&stats.vps, &stats.fps, &stats.actual_fps);
+	stats.fgEnabled = g_Config.bExperimentalFrameGeneration;
+	stats.fgReal = FrameGeneration::real.load();
+	stats.fgGenerated = FrameGeneration::generated.load();
+	stats.fgPresented = FrameGeneration::presented.load();
+	stats.fgDropped = FrameGeneration::dropped.load();
+	stats.fgShaderNS = FrameGeneration::shaderNS.load();
+	stats.fgShaderSamples = FrameGeneration::shaderSamples.load();
+	stats.fgDisplayTicks = FrameGeneration::displayTicks.load();
+	stats.fgDisplayIntervalNS = FrameGeneration::displayIntervalNS.load();
+	stats.fgRequestedHz = FrameGeneration::requestedHz.load();
 
 	StringWriter w(stats.statbuf);
 	__DisplayGetDebugStats(w);

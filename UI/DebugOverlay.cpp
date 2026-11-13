@@ -591,18 +591,21 @@ void DrawFPS(UIContext *ctx, const Bounds &bounds) {
 	if (g_Config.bExperimentalFrameGeneration) {
 		using namespace FrameGeneration;
 		static double last = 0;
-		static uint64_t r = 0, g = 0, p = 0, ns = 0, samples = 0;
-		static double rf = 0, gf = 0, pf = 0, ms = 0;
+		static uint64_t r = 0, g = 0, p = 0, ns = 0, samples = 0, ticks = 0, drops = 0;
+		static double rf = 0, gf = 0, pf = 0, ms = 0, hz = 0, df = 0;
 		double now = time_now_d();
 		if (now - last >= 1.0) {
 			auto nr = real.load(), ng = generated.load(), np = presented.load(), nn = shaderNS.load();
 			rf = (nr - r) / (now - last); gf = (ng - g) / (now - last); pf = (np - p) / (now - last);
 			auto nSamples = shaderSamples.load();
 			ms = nSamples > samples ? (nn - ns) / (double)(nSamples - samples) / 1e6 : 0;
+			auto nt = displayTicks.load(), nd = dropped.load();
+			hz = (nt - ticks) / (now - last); df = (nd - drops) / (now - last);
+			ticks = nt; drops = nd;
 			samples = nSamples;
 			r = nr; g = ng; p = np; ns = nn; last = now;
 		}
-		w.F("\nFG real %.1f | generated %.1f | presented %.1f\nGPU blend %.3f ms", rf, gf, pf, ms);
+		w.F("\nFG real %.1f | generated %.1f | presented %.1f\nGPU blend %.3f ms | display link %.1f Hz | drops %.1f/s", rf, gf, pf, ms, hz, df);
 	}
 	ctx->Flush();
 
